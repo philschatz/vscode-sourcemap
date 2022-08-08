@@ -1,0 +1,33 @@
+{
+    "name": "vscode-sourcemap",
+    "displayName": "SourceMap Viewer",
+    "description": "View the Sourcemap of any type of file",
+    "version": "1.0.0",
+    "main": "./src/extension",
+    "scripts": {
+      "prebuild": "./prebuild.bash",
+      "build": "tsc -p ./src/",
+      "watch": "tsc -w -p ./src",
+      "package": "vsce package",
+      "publish": "vsce publish"
+    },
+    "devDependencies": {
+      "@types/node": "^13.9.6",
+      "@types/vscode": "^1.43.0",
+      "typescript": "^3.8.3",
+      "vsce": "^1.74.0"
+    },
+    "engines": {
+      "vscode": "^1.43.0"
+    },
+    "activationEvents": [
+      "onDebug"
+    ],
+    "contributes": {
+    },
+    "private": true,
+    "publisher": "philschatz",
+    "repository": {
+      "url": "https://github.com/philschatz/vscode-sourcemap"
+    }
+  }
