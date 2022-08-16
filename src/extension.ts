@@ -2,8 +2,8 @@
 
 import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
-import { commands, ExtensionContext, Position, Range, Uri, window, workspace } from 'vscode'
-import { SourceMapConsumer } from 'source-map'
+import { commands, ExtensionContext, Position, Range, Selection, TextEditor, ViewColumn, window, workspace } from 'vscode'
+import { NullableMappedPosition, SourceMapConsumer } from 'source-map'
 
 const SOURCEMAPPING_URL_MARKER = '# sourceMappingURL='
 const DATA_URI_MARKER = 'data:application/json;base64,'
@@ -12,6 +12,33 @@ const DATA_URI_MARKER = 'data:application/json;base64,'
 function assertValue<T>(v: T | undefined | null, msg = 'Expected a value but did not find any') {
     if (v) return v
     throw new Error(msg)
+}
+
+let sourceEditor: TextEditor | null = null
+
+const decoration = window.createTextEditorDecorationType({
+    border: '2px solid yellow',
+    textDecoration: 'underline',
+    outlineColor: 'yellow'
+})
+
+async function updateSourceEditor(sourceCode: string, mapping: NullableMappedPosition) {
+    if (sourceEditor === null) {
+        const doc = await workspace.openTextDocument({content: sourceCode, language: 'xml'})
+        sourceEditor = await window.showTextDocument(doc, ViewColumn.Beside)
+    } else {
+        const currentText = sourceEditor.document.getText()
+        if (currentText !== sourceCode) {
+            const end = sourceEditor.document.positionAt(currentText.length)
+            const range = new Range(new Position(0, 0), end)
+            await sourceEditor.edit(b => b.replace(range, sourceCode))
+        }
+    }
+
+    const start = new Position(assertValue(mapping.line) - 1, assertValue(mapping.column))
+    const cursor = new Range(start, new Position(assertValue(mapping.line) - 1, assertValue(mapping.column) + 1))
+    sourceEditor.setDecorations(decoration, [cursor])
+    sourceEditor.selections = [ new Selection(start, start)]
 }
 
 export function activate(context: ExtensionContext) {
@@ -48,7 +75,7 @@ export function activate(context: ExtensionContext) {
                     sourcemapStr = readFileSync(join(dirname(fsPath), url), 'utf-8')
                 }
                 
-                await SourceMapConsumer.with(JSON.parse(sourcemapStr), null, (c) => {
+                await SourceMapConsumer.with(JSON.parse(sourcemapStr), null, async (c) => {
 
                     const cursor = activeEditor.selection.start
                     const mapping = c.originalPositionFor({
@@ -65,34 +92,11 @@ export function activate(context: ExtensionContext) {
                         } else { // assume it is a relative file
                             sourceFile = join(dirname(fsPath), mappingSource)
                         }
-                        let openPath = Uri.file(sourceFile);
-                        if (!existsSync(sourceFile)) {
-                            openPath = openPath.with({scheme: 'untitled'})
+                        let sourceText = c.sourceContentFor(mappingSource)
+                        if (sourceText === null && existsSync(sourceFile)) {
+                            sourceText = readFileSync(sourceFile, 'utf-8')
                         }
-                        workspace.openTextDocument(openPath).then(async doc => {
-                            const editor = await window.showTextDocument(doc)
-
-                            // Populate the document with the source info if the document does not exist
-                            // Maybe use Virtual Documents? https://code.visualstudio.com/api/extension-guides/virtual-documents
-                            if (openPath.scheme === 'untitled') {
-                                const sourceCode = c.sourceContentFor(mappingSource)
-                                const end = doc.positionAt(editor.document.getText().length)
-                                const range = new Range(new Position(0, 0), end)
-                                if (sourceCode !== null) {
-                                    await editor.edit(b => b.replace(range, sourceCode))
-                                } else {
-                                    await editor.edit(b => b.replace(range, `Could not find the source for '${openPath.toString()}'`))
-                                }
-                            }
-
-                            const decoration = window.createTextEditorDecorationType({
-                                border: '2px solid yellow',
-                                textDecoration: 'underline',
-                                outlineColor: 'yellow'
-                            })
-                            const cursor = new Range(new Position(assertValue(mapping.line) - 1, assertValue(mapping.column)), new Position(assertValue(mapping.line) - 1, assertValue(mapping.column) + 1))
-                            editor.setDecorations(decoration, [cursor])
-                        })
+                        updateSourceEditor(sourceText || `(no source available for '${mappingSource}')`, mapping)
                     }
                 })
             }
